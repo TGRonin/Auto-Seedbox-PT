@@ -250,13 +250,6 @@ uninstall() {
         rm -f /usr/bin/qbittorrent-nox
     "
 
-    if command -v docker >/dev/null; then
-        execute_with_spinner "清理 Docker 镜像与容器残留" sh -c "
-            docker rm -f vertex filebrowser 2>/dev/null || true
-            docker rmi lswl/vertex:stable filebrowser/filebrowser:latest 2>/dev/null || true
-            docker network prune -f >/dev/null 2>&1 || true
-        "
-    fi
 
     execute_with_spinner "移除系统优化与内核回滚 (含服务扩展)" sh -c "
         systemctl stop asp-tune.service 2>/dev/null || true
