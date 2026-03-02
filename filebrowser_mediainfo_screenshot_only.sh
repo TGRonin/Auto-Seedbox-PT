@@ -343,9 +343,10 @@ need_ss = 'location /api/ss' not in data
 need_out = 'location /asp-ss/' not in data
 need_ss_js = 'location = /asp-screenshot.js' not in data
 need_swal_js = 'location = /sweetalert2.all.min.js' not in data
+need_pixhost = 'location /api/pixhost' not in data
 
-if not (need_mi or need_ss or need_out or need_ss_js or need_swal_js):
-    print('Nginx 已包含 /api/mi、/api/ss、/asp-ss、/asp-screenshot.js、/sweetalert2.all.min.js 配置，无需修改。')
+if not (need_mi or need_ss or need_out or need_ss_js or need_swal_js or need_pixhost):
+    print('Nginx 已包含 /api/mi、/api/ss、/asp-ss、/asp-screenshot.js、/sweetalert2.all.min.js、/api/pixhost 配置，无需修改。')
     sys.exit(0)
 
 snippet = '\n'
@@ -359,6 +360,8 @@ if need_ss_js:
     snippet += f"    location = /asp-screenshot.js {{\n        alias {ss_js_path};\n        add_header Content-Type \"application/javascript; charset=utf-8\";\n    }}\n\n"
 if need_swal_js:
     snippet += f"    location = /sweetalert2.all.min.js {{\n        alias {swal_js_path};\n        add_header Content-Type \"application/javascript; charset=utf-8\";\n    }}\n\n"
+if need_pixhost:
+    snippet += "    location /api/pixhost {\n        proxy_pass https://pixhost.to/remote/;\n        proxy_set_header Host pixhost.to;\n        proxy_set_header Referer https://pixhost.to/;\n        proxy_set_header Origin https://pixhost.to;\n    }\n\n"
 
 idx = data.rfind('}')
 if idx == -1:
@@ -369,7 +372,7 @@ new_data = data[:idx] + snippet + data[idx:]
 with open(conf, 'w', encoding='utf-8') as f:
     f.write(new_data)
 
-print('已更新 Nginx 配置，注入 /api/mi /api/ss /asp-ss /asp-screenshot.js /sweetalert2.all.min.js。')
+print('已更新 Nginx 配置，注入 /api/mi /api/ss /asp-ss /asp-screenshot.js /sweetalert2.all.min.js /api/pixhost。')
 PY
 
   nginx -t
@@ -394,6 +397,7 @@ Screenshot API: http://127.0.0.1:${SS_PORT}/api/ss
   ASP_SS_PATH      - Screenshot JS 本地路径 (默认 /usr/local/bin/asp-screenshot.js)
   SWAL_JS_PATH     - SweetAlert2 本地路径 (默认 /usr/local/bin/sweetalert2.all.min.js)
   NGINX_CONF       - Nginx 配置路径 (默认 /etc/nginx/conf.d/asp-filebrowser.conf)
+  说明: 已内置 /api/pixhost 反向代理用于绕过 CORS
 EOF
 }
 

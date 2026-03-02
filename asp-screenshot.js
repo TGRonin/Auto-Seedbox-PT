@@ -40,7 +40,7 @@
 
     async function uploadToPixhostRemote(urls) {
         const body = encodeURI(`imgs=${urls.join('\r\n')}&content_type=0&max_th_size=350`);
-        const res = await fetch("https://pixhost.to/remote/", {
+        const res = await fetch("/api/pixhost", {
             method: "POST",
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
