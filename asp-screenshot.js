@@ -38,6 +38,33 @@
         }
     };
 
+    async function uploadToPixhostRemote(urls) {
+        const body = encodeURI(`imgs=${urls.join('\r\n')}&content_type=0&max_th_size=350`);
+        const res = await fetch("https://pixhost.to/remote/", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json"
+            },
+            body
+        });
+        const text = await res.text();
+        if (!res.ok) {
+            throw new Error(`Pixhost 上传失败 (HTTP ${res.status})`);
+        }
+        const match = text.match(/upload_results\s*=\s*({.*});/);
+        if (!match || !match[1]) {
+            throw new Error("Pixhost 返回解析失败");
+        }
+        const payload = JSON.parse(match[1]);
+        const images = Array.isArray(payload.images) ? payload.images : [];
+        return images.map((item) => {
+            const thUrl = item.th_url;
+            const fullUrl = thUrl.replace("//t", "//img").replace("thumbs", "images");
+            return { show_url: item.show_url, th_url: thUrl, full_url: fullUrl };
+        });
+    }
+
     const isMedia = (file) => file && file.match(/\.(mp4|mkv|avi|ts|m2ts|mov|webm|mpg|mpeg|wmv|flv|vob|iso)$/i);
 
     function clamp(v, lo, hi, fallback) {
@@ -288,8 +315,26 @@
                     const base = json.base;
                     const imgs = json.files.map((f) => `${base}${f}`);
                     const absoluteImgs = imgs.map((u) => new URL(u, window.location.origin).href);
-                    const allLinksText = absoluteImgs.join("\n");
                     const zipUrl = json.zip ? `${base}${json.zip}` : null;
+
+                    Swal.fire({
+                        title: "上传至 Pixhost...",
+                        html: "正在上传截图，请稍候...",
+                        allowOutsideClick: false,
+                        allowEscapeKey: false,
+                        didOpen: () => Swal.showLoading()
+                    });
+
+                    let pixItems = [];
+                    try {
+                        pixItems = await uploadToPixhostRemote(absoluteImgs);
+                    } catch (err) {
+                        Swal.fire("上传失败", err && err.message ? err.message : String(err), "error");
+                        return;
+                    }
+
+                    const pixFullUrls = pixItems.map((i) => i.full_url);
+                    const allLinksText = pixFullUrls.join("\n");
 
                     let html = `
                         <style>
@@ -308,15 +353,15 @@
                         <div class='ss-panel'>
                             <div class='ss-top'>
                                 文件：<code>${escapeHtml(fileName)}</code><br>
-                                参数：<span style="color:#4ec9b0;">${imgs.length}张 / ${opt.width}px</span>
+                                参数：<span style="color:#4ec9b0;">${pixItems.length}张 / ${opt.width}px</span>
                             </div>
                             <div class='ss-grid-wrap'>
                                 <div class='ss-grid'>
-                                    ${imgs.map((u, i) => `
-                                    <a href='${u}' target='_blank' style='text-decoration:none'>
+                                    ${pixItems.map((item, i) => `
+                                    <a href='${item.full_url}' target='_blank' style='text-decoration:none'>
                                         <div class='ss-card'>
                                             <div class='ss-bar'><span class='ss-idx'>#${i + 1}</span><span>点击查看全图</span></div>
-                                            <img class='ss-img' src='${u}' loading='lazy' />
+                                            <img class='ss-img' src='${item.th_url}' loading='lazy' />
                                         </div>
                                     </a>`).join("")}
                                 </div>
