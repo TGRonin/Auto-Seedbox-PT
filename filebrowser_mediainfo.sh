@@ -15,7 +15,8 @@ FB_IMAGE="${FB_IMAGE:-filebrowser/filebrowser:s6}"
 FB_CONTAINER="${FB_CONTAINER:-filebrowser}"
 MI_PORT="${MI_PORT:-19090}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ASP_MEDIAINFO_URL="https://github.com/TGRonin/Auto-Seedbox-PT/raw/refs/heads/main/asp-mediainfo.js"
+ASP_SCREENSHOT_URL="https://github.com/TGRonin/Auto-Seedbox-PT/raw/refs/heads/main/asp-screenshot.js"
 ASP_JS_PATH="/usr/local/bin/asp-mediainfo.js"
 ASP_SS_PATH="/usr/local/bin/asp-screenshot.js"
 SWAL_JS_PATH="/usr/local/bin/sweetalert2.all.min.js"
@@ -123,16 +124,11 @@ prepare_dirs() {
 }
 
 write_frontend_assets() {
-  if [ ! -f "${SCRIPT_DIR}/asp-mediainfo.js" ] || [ ! -f "${SCRIPT_DIR}/asp-screenshot.js" ]; then
-    echo "未找到 ${SCRIPT_DIR}/asp-mediainfo.js 或 ${SCRIPT_DIR}/asp-screenshot.js" >&2
-    exit 1
-  fi
-
-  install -m 644 "${SCRIPT_DIR}/asp-mediainfo.js" "${ASP_JS_PATH}"
-  install -m 644 "${SCRIPT_DIR}/asp-screenshot.js" "${ASP_SS_PATH}"
-
+  curl -fsSL "${ASP_MEDIAINFO_URL}" -o "${ASP_JS_PATH}"
+  curl -fsSL "${ASP_SCREENSHOT_URL}" -o "${ASP_SS_PATH}"
   curl -fsSL "https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js" -o "${SWAL_JS_PATH}"
-  chmod 644 "${SWAL_JS_PATH}"
+
+  chmod 644 "${ASP_JS_PATH}" "${ASP_SS_PATH}" "${SWAL_JS_PATH}"
 }
 
 setup_mediainfo_api() {
