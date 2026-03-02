@@ -309,16 +309,15 @@ patch_nginx() {
     return 0
   fi
 
-  NGINX_CONF="${NGINX_CONF}" MI_PORT="${MI_PORT}" SS_PORT="${SS_PORT}" SS_OUT_DIR="${SS_OUT_DIR}" \
-  python3 - <<'PY'
+  python3 - "${NGINX_CONF}" "${MI_PORT}" "${SS_PORT}" "${SS_OUT_DIR}" <<'PY'
 import io
 import os
 import sys
 
-conf = os.environ.get('NGINX_CONF') or '/etc/nginx/conf.d/asp-filebrowser.conf'
-mi_port = os.environ.get('MI_PORT') or '19090'
-ss_port = os.environ.get('SS_PORT') or '19190'
-ss_out = os.environ.get('SS_OUT_DIR') or '/usr/local/asp-ss'
+conf = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else '/etc/nginx/conf.d/asp-filebrowser.conf'
+mi_port = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else '19090'
+ss_port = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else '19190'
+ss_out = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else '/usr/local/asp-ss'
 
 if not conf:
     print('NGINX_CONF 为空，跳过修改。')
