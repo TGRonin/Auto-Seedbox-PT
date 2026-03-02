@@ -178,30 +178,85 @@
             // 扩展支持：添加原盘 index.bdmv 及无损音频格式
             let isMedia = targetFile && targetFile.match(/\.(mp4|mkv|avi|ts|iso|rmvb|wmv|flv|mov|webm|vob|m2ts|bdmv|flac|wav|ape|alac)$/i);
 
-            let menus = new Set();
-            document.querySelectorAll('button[aria-label="Info"]').forEach(btn => {
-                if (btn.parentElement) menus.add(btn.parentElement);
-            });
+            const collectActionContainers = () => {
+                const containers = new Set();
+                const menuLabels = new Set(['Info', '信息', 'Delete', '删除', 'Download', '下载']);
 
-            menus.forEach(menu => {
+                document.querySelectorAll('button[aria-label], a[aria-label], div[aria-label], li[aria-label]').forEach(btn => {
+                    const label = btn.getAttribute('aria-label');
+                    if (label && menuLabels.has(label)) {
+                        if (btn.parentElement) containers.add(btn.parentElement);
+                    }
+                });
+
+                document.querySelectorAll('button, a, div, li, span').forEach(el => {
+                    const text = (el.textContent || '').trim();
+                    if (menuLabels.has(text)) {
+                        const menu = el.closest('[role="menu"], .context-menu, .contextMenu, .contextmenu, .dropdown-menu, .menu, [class*="context"], [class*="menu"], [data-testid*="menu"], [data-testid*="context"]');
+                        if (menu) containers.add(menu);
+                    }
+                });
+
+                document.querySelectorAll('.context-menu, .contextmenu, .dropdown-menu, .menu, [role="menu"], .contextMenu, [data-testid*="menu"], [data-testid*="context"]').forEach(menu => {
+                    containers.add(menu);
+                });
+                return containers;
+            };
+
+            const buildMenuButton = (menu, label, icon) => {
+                const sample = menu.querySelector('button, a, div[role="menuitem"], li, .menu-item, .item, [role="menuitem"]');
+                let btn;
+                if (sample) {
+                    btn = document.createElement(sample.tagName.toLowerCase());
+                    btn.className = sample.className || '';
+                    const role = sample.getAttribute && sample.getAttribute('role');
+                    if (role) btn.setAttribute('role', role);
+                    const tabindex = sample.getAttribute && sample.getAttribute('tabindex');
+                    if (tabindex) btn.setAttribute('tabindex', tabindex);
+                } else {
+                    btn = document.createElement('button');
+                    btn.className = 'action';
+                }
+
+                btn.classList.add('asp-mi-btn-class');
+                btn.setAttribute('title', label);
+                btn.setAttribute('aria-label', label);
+                if (btn.tagName === 'BUTTON' && !btn.getAttribute('type')) btn.setAttribute('type', 'button');
+
+                const useMaterialIcons = !!menu.querySelector('i.material-icons');
+                if (useMaterialIcons) {
+                    btn.innerHTML = `<i class="material-icons">${icon}</i><span>${label}</span>`;
+                } else {
+                    btn.textContent = label;
+                }
+                return btn;
+            };
+
+            const findInfoButton = (menu) => {
+                const ariaBtn = menu.querySelector('button[aria-label="Info"], button[aria-label="信息"], a[aria-label="Info"], a[aria-label="信息"], div[aria-label="Info"], div[aria-label="信息"]');
+                if (ariaBtn) return ariaBtn;
+                const candidates = menu.querySelectorAll('button, a, div, li, span');
+                for (const el of candidates) {
+                    const text = (el.textContent || '').trim();
+                    if (text === 'Info' || text === '信息') return el;
+                }
+                return null;
+            };
+
+            collectActionContainers().forEach(menu => {
                 let existingBtn = menu.querySelector('.asp-mi-btn-class');
                 if (isMedia) {
                     if (!existingBtn) {
-                        let btn = document.createElement('button');
-                        btn.className = 'action asp-mi-btn-class';
-                        btn.setAttribute('title', 'MediaInfo');
-                        btn.setAttribute('aria-label', 'MediaInfo');
-                        btn.innerHTML = '<i class="material-icons">movie</i><span>MediaInfo</span>';
-                        
+                        let btn = buildMenuButton(menu, 'MediaInfo', 'movie');
                         btn.onclick = function(ev) {
                             ev.preventDefault();
                             ev.stopPropagation();
-                            document.body.click(); 
+                            document.body.click();
                             openMediaInfo(targetFile);
                         };
                         
-                        let infoBtn = menu.querySelector('button[aria-label="Info"]');
-                        if (infoBtn) {
+                        let infoBtn = findInfoButton(menu);
+                        if (infoBtn && infoBtn.insertAdjacentElement) {
                             infoBtn.insertAdjacentElement('afterend', btn);
                         } else {
                             menu.appendChild(btn);

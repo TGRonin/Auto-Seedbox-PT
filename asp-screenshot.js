@@ -375,21 +375,77 @@
             }
 
             const ok = isMedia(targetFile);
-            const menus = new Set();
-            document.querySelectorAll('button[aria-label="Info"]').forEach((btn) => {
-                if (btn.parentElement) menus.add(btn.parentElement);
-            });
 
-            menus.forEach((menu) => {
+            const collectActionContainers = () => {
+                const containers = new Set();
+                const menuLabels = new Set(['Info', '信息', 'Delete', '删除', 'Download', '下载']);
+
+                document.querySelectorAll('button[aria-label], a[aria-label], div[aria-label], li[aria-label]').forEach(btn => {
+                    const label = btn.getAttribute('aria-label');
+                    if (label && menuLabels.has(label)) {
+                        if (btn.parentElement) containers.add(btn.parentElement);
+                    }
+                });
+
+                document.querySelectorAll('button, a, div, li, span').forEach(el => {
+                    const text = (el.textContent || '').trim();
+                    if (menuLabels.has(text)) {
+                        const menu = el.closest('[role="menu"], .context-menu, .contextMenu, .contextmenu, .dropdown-menu, .menu, [class*="context"], [class*="menu"], [data-testid*="menu"], [data-testid*="context"]');
+                        if (menu) containers.add(menu);
+                    }
+                });
+
+                document.querySelectorAll('.context-menu, .contextmenu, .dropdown-menu, .menu, [role="menu"], .contextMenu, [data-testid*="menu"], [data-testid*="context"]').forEach(menu => {
+                    containers.add(menu);
+                });
+                return containers;
+            };
+
+            const buildMenuButton = (menu, label, icon) => {
+                const sample = menu.querySelector('button, a, div[role="menuitem"], li, .menu-item, .item, [role="menuitem"]');
+                let btn;
+                if (sample) {
+                    btn = document.createElement(sample.tagName.toLowerCase());
+                    btn.className = sample.className || '';
+                    const role = sample.getAttribute && sample.getAttribute('role');
+                    if (role) btn.setAttribute('role', role);
+                    const tabindex = sample.getAttribute && sample.getAttribute('tabindex');
+                    if (tabindex) btn.setAttribute('tabindex', tabindex);
+                } else {
+                    btn = document.createElement('button');
+                    btn.className = 'action';
+                }
+
+                btn.classList.add('asp-ss-btn-class');
+                btn.setAttribute('title', label);
+                btn.setAttribute('aria-label', label);
+                if (btn.tagName === 'BUTTON' && !btn.getAttribute('type')) btn.setAttribute('type', 'button');
+
+                const useMaterialIcons = !!menu.querySelector('i.material-icons');
+                if (useMaterialIcons) {
+                    btn.innerHTML = `<i class="material-icons">${icon}</i><span>${label}</span>`;
+                } else {
+                    btn.textContent = label;
+                }
+                return btn;
+            };
+
+            const findInfoButton = (menu) => {
+                const ariaBtn = menu.querySelector('button[aria-label="Info"], button[aria-label="信息"], a[aria-label="Info"], a[aria-label="信息"], div[aria-label="Info"], div[aria-label="信息"]');
+                if (ariaBtn) return ariaBtn;
+                const candidates = menu.querySelectorAll('button, a, div, li, span');
+                for (const el of candidates) {
+                    const text = (el.textContent || '').trim();
+                    if (text === 'Info' || text === '信息') return el;
+                }
+                return null;
+            };
+
+            collectActionContainers().forEach((menu) => {
                 const existingBtn = menu.querySelector(".asp-ss-btn-class");
                 if (ok) {
                     if (!existingBtn) {
-                        const btn = document.createElement("button");
-                        btn.className = "action asp-ss-btn-class";
-                        btn.setAttribute("title", "Screenshot");
-                        btn.setAttribute("aria-label", "Screenshot");
-                        btn.innerHTML = '<i class="material-icons">photo_camera</i><span>Screenshot</span>';
-
+                        const btn = buildMenuButton(menu, 'Screenshot', 'photo_camera');
                         btn.onclick = function (ev) {
                             ev.preventDefault();
                             ev.stopPropagation();
@@ -401,8 +457,8 @@
                         if (miBtn) {
                             miBtn.insertAdjacentElement("afterend", btn);
                         } else {
-                            const infoBtn = menu.querySelector('button[aria-label="Info"]');
-                            if (infoBtn) infoBtn.insertAdjacentElement("afterend", btn);
+                            const infoBtn = findInfoButton(menu);
+                            if (infoBtn && infoBtn.insertAdjacentElement) infoBtn.insertAdjacentElement("afterend", btn);
                             else menu.appendChild(btn);
                         }
                     } else {
