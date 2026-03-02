@@ -14,6 +14,8 @@ FB_DATA_DIR="${FB_DATA_DIR:-/opt/filebrowser}"
 FB_IMAGE="${FB_IMAGE:-filebrowser/filebrowser:s6}"
 FB_CONTAINER="${FB_CONTAINER:-filebrowser}"
 MI_PORT="${MI_PORT:-19090}"
+HOST_DL="${HOST_DL:-/home/admin/qbittorrent/Downloads}"
+SRV_DL="${SRV_DL:-/srv/dl}"
 
 ASP_MEDIAINFO_URL="https://raw.githubusercontent.com/TGRonin/Auto-Seedbox-PT/main/asp-mediainfo.js"
 ASP_SCREENSHOT_URL="https://raw.githubusercontent.com/TGRonin/Auto-Seedbox-PT/main/asp-screenshot.js"
@@ -106,20 +108,17 @@ install_host_deps() {
 }
 
 prepare_dirs() {
-  local host_dl="/home/admin/qbittorrent/Downloads"
-  local srv_dl="/srv/dl"
-
   mkdir -p "${FB_DATA_DIR}"
   mkdir -p "${FB_ROOT}"
-  mkdir -p "${host_dl}"
-  mkdir -p "${srv_dl}"
+  mkdir -p "${HOST_DL}"
+  mkdir -p "${SRV_DL}"
 
-  if ! mountpoint -q "${srv_dl}"; then
-    mount --bind "${host_dl}" "${srv_dl}"
+  if ! mountpoint -q "${SRV_DL}"; then
+    mount --bind "${HOST_DL}" "${SRV_DL}"
   fi
 
-  if ! grep -qs "^${host_dl} ${srv_dl} " /etc/fstab; then
-    echo "${host_dl} ${srv_dl} none bind 0 0" >> /etc/fstab
+  if ! grep -qs "^${HOST_DL} ${SRV_DL} " /etc/fstab; then
+    echo "${HOST_DL} ${SRV_DL} none bind 0 0" >> /etc/fstab
   fi
 }
 
@@ -137,6 +136,8 @@ import http.server, socketserver, urllib.parse, subprocess, json, os, sys
 
 PORT = int(sys.argv[2])
 BASE_DIR = sys.argv[1]
+HOST_DL = sys.argv[3]
+SRV_DL = sys.argv[4]
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -146,7 +147,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             file_path = query.get('file', [''])[0].lstrip('/')
             full_path = os.path.abspath(os.path.join(BASE_DIR, file_path))
 
-            if not full_path.startswith(os.path.abspath(BASE_DIR)) or not os.path.isfile(full_path):
+            if full_path.startswith(os.path.abspath(SRV_DL)):
+                full_path = os.path.abspath(os.path.join(HOST_DL, os.path.relpath(full_path, SRV_DL)))
+
+            if not full_path.startswith(os.path.abspath(BASE_DIR)) and not full_path.startswith(os.path.abspath(HOST_DL)):
+                self.send_response(400)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.end_headers()
+                self.wfile.write('非法路径'.encode('utf-8'))
+                return
+
+            if not os.path.isfile(full_path):
                 self.send_response(400)
                 self.send_header('Content-Type', 'text/plain; charset=utf-8')
                 self.end_headers()
@@ -183,7 +194,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/python3 ${MI_API_PATH} "${FB_ROOT}" ${MI_PORT}
+ExecStart=/usr/bin/python3 ${MI_API_PATH} "${FB_ROOT}" ${MI_PORT} "${HOST_DL}" "${SRV_DL}"
 Restart=always
 [Install]
 WantedBy=multi-user.target

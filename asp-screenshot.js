@@ -266,10 +266,23 @@
             const url = `${SS_API}?file=${encodeURIComponent(opt.fullPath)}&n=${opt.n}&width=${opt.width}&head=${opt.head}&tail=${opt.tail}&fmt=jpg&zip=1`;
 
             fetch(url, { cache: "no-store" })
-                .then((r) => r.json().then((j) => ({ ok: r.ok, status: r.status, json: j })))
-                .then(({ ok, status, json }) => {
+                .then(async (r) => {
+                    const contentType = (r.headers.get("content-type") || "").toLowerCase();
+                    const text = await r.text();
+                    let json = null;
+                    if (text && (contentType.includes("application/json") || contentType.includes("text/json"))) {
+                        try { json = JSON.parse(text); } catch (e) { json = null; }
+                    } else {
+                        try { json = JSON.parse(text); } catch (e) { json = null; }
+                    }
+                    return { ok: r.ok, status: r.status, json, raw: text, contentType };
+                })
+                .then(({ ok, status, json, raw, contentType }) => {
                     if (!ok || !json || !json.base || !Array.isArray(json.files) || json.files.length === 0) {
-                        throw new Error(json && json.error ? json.error : `请求失败 (HTTP ${status})`);
+                        const isHtml = (contentType && contentType.includes("text/html")) || /^\s*<!doctype|^\s*<html/i.test(raw || "");
+                        const hint = isHtml ? "接口返回了 HTML（疑似被重定向到登录页或前端页面），请检查 /api/ss 服务端路由是否可用或鉴权是否正确。" : "";
+                        const err = json && json.error ? json.error : `请求失败 (HTTP ${status})`;
+                        throw new Error(`${err}${hint ? "\n" + hint : ""}`);
                     }
 
                     const base = json.base;
