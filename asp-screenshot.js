@@ -304,7 +304,7 @@
                     }
                     return { ok: r.ok, status: r.status, json, raw: text, contentType };
                 })
-                .then(({ ok, status, json, raw, contentType }) => {
+                .then(async ({ ok, status, json, raw, contentType }) => {
                     if (!ok || !json || !json.base || !Array.isArray(json.files) || json.files.length === 0) {
                         const isHtml = (contentType && contentType.includes("text/html")) || /^\s*<!doctype|^\s*<html/i.test(raw || "");
                         const hint = isHtml ? "接口返回了 HTML（疑似被重定向到登录页或前端页面），请检查 /api/ss 服务端路由是否可用或鉴权是否正确。" : "";
