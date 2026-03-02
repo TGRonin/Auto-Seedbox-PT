@@ -7,7 +7,7 @@ set -euo pipefail
 # - Runs FileBrowser in Docker and injects a custom frontend popup for MediaInfo
 # - Exposes /api/mi for frontend calls
 
-FB_PORT="${FB_PORT:-9090}"
+FB_PORT="${FB_PORT:-8080}"
 FB_INTERNAL_PORT="${FB_INTERNAL_PORT:-18081}"
 FB_ROOT="${FB_ROOT:-/srv}"
 FB_DATA_DIR="${FB_DATA_DIR:-/opt/filebrowser}"
@@ -19,6 +19,56 @@ ASP_JS_PATH="/usr/local/bin/asp-mediainfo.js"
 SWAL_JS_PATH="/usr/local/bin/sweetalert2.all.min.js"
 MI_API_PATH="/usr/local/bin/asp-mediainfo.py"
 NGINX_CONF="/etc/nginx/conf.d/asp-filebrowser.conf"
+
+is_valid_port() {
+  local p="$1"
+  [[ "$p" =~ ^[0-9]+$ ]] && [ "$p" -ge 1 ] && [ "$p" -le 65535 ]
+}
+
+prompt_var() {
+  local var_name="$1"
+  local default_val="$2"
+  local prompt="$3"
+  local input=""
+
+  if [ "${INTERACTIVE:-1}" = "0" ]; then
+    return 0
+  fi
+
+  if [ -r /dev/tty ]; then
+    read -r -p "${prompt}（默认为${default_val}）: " input < /dev/tty || true
+  elif [ -t 0 ]; then
+    read -r -p "${prompt}（默认为${default_val}）: " input || true
+  fi
+
+  if [ -n "${input}" ]; then
+    printf -v "${var_name}" '%s' "${input}"
+  fi
+}
+
+configure_ports() {
+  local default_fb_port="${FB_PORT}"
+  local default_internal_port="${FB_INTERNAL_PORT}"
+  local default_mi_port="${MI_PORT}"
+
+  prompt_var FB_PORT "${default_fb_port}" "请输入访问端口"
+  if ! is_valid_port "${FB_PORT}"; then
+    echo "端口 ${FB_PORT} 非法，回退为默认值 ${default_fb_port}" >&2
+    FB_PORT="${default_fb_port}"
+  fi
+
+  prompt_var FB_INTERNAL_PORT "${default_internal_port}" "请输入 FileBrowser 内部转发端口"
+  if ! is_valid_port "${FB_INTERNAL_PORT}"; then
+    echo "端口 ${FB_INTERNAL_PORT} 非法，回退为默认值 ${default_internal_port}" >&2
+    FB_INTERNAL_PORT="${default_internal_port}"
+  fi
+
+  prompt_var MI_PORT "${default_mi_port}" "请输入 MediaInfo API 端口"
+  if ! is_valid_port "${MI_PORT}"; then
+    echo "端口 ${MI_PORT} 非法，回退为默认值 ${default_mi_port}" >&2
+    MI_PORT="${default_mi_port}"
+  fi
+}
 
 ensure_root() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -360,6 +410,10 @@ EOF
 }
 
 setup_nginx() {
+  if [ -f /etc/nginx/sites-enabled/default ]; then
+    rm -f /etc/nginx/sites-enabled/default
+  fi
+
   cat > "${NGINX_CONF}" <<EOF
 server {
     listen ${FB_PORT};
@@ -432,11 +486,13 @@ API: /api/mi 由宿主机 Python 服务提供。
   FB_IMAGE         - 镜像名 (默认 filebrowser/filebrowser:s6)
   FB_CONTAINER     - 容器名 (默认 filebrowser)
   MI_PORT          - MediaInfo API 端口 (默认 19090)
+  INTERACTIVE      - 设为 0 可禁用交互提示
 EOF
 }
 
 main() {
   ensure_root
+  configure_ports
   install_docker
   install_host_deps
   prepare_dirs
