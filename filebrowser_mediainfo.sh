@@ -7,7 +7,7 @@ set -euo pipefail
 # - Runs FileBrowser in Docker and injects a custom frontend popup for MediaInfo
 # - Exposes /api/mi for frontend calls
 
-FB_PORT="${FB_PORT:-8080}"
+FB_PORT="${FB_PORT:-9091}"
 FB_INTERNAL_PORT="${FB_INTERNAL_PORT:-18081}"
 FB_ROOT="${FB_ROOT:-/srv}"
 FB_DATA_DIR="${FB_DATA_DIR:-/opt/filebrowser}"
@@ -396,6 +396,61 @@ EOF
   systemctl restart asp-screenshot.service
 }
 
+patch_nginx() {
+  if [ -z "${NGINX_CONF}" ] || [ ! -f "${NGINX_CONF}" ]; then
+    echo "未找到 Nginx 配置文件: ${NGINX_CONF:-<空>}，跳过路由注入。"
+    return 0
+  fi
+
+  python3 - "${NGINX_CONF}" "${MI_PORT}" "${SS_PORT}" "${SS_OUT_DIR}" <<'PY'
+import io
+import os
+import sys
+
+conf = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else '/etc/nginx/conf.d/asp-filebrowser.conf'
+mi_port = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else '19090'
+ss_port = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else '19190'
+ss_out = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else '/usr/local/asp-ss'
+
+if not conf:
+    print('NGINX_CONF 为空，跳过修改。')
+    sys.exit(0)
+
+with open(conf, 'r', encoding='utf-8') as f:
+    data = f.read()
+
+need_mi = 'location /api/mi' not in data
+need_ss = 'location /api/ss' not in data
+need_out = 'location /asp-ss/' not in data
+
+if not (need_mi or need_ss or need_out):
+    print('Nginx 已包含 /api/mi、/api/ss、/asp-ss 配置，无需修改。')
+    sys.exit(0)
+
+snippet = '\n'
+if need_mi:
+    snippet += f"    location /api/mi {{\n        proxy_pass http://127.0.0.1:{mi_port};\n    }}\n\n"
+if need_ss:
+    snippet += f"    location /api/ss {{\n        proxy_pass http://127.0.0.1:{ss_port};\n    }}\n\n"
+if need_out:
+    snippet += f"    location /asp-ss/ {{\n        alias {ss_out}/;\n        add_header Cache-Control \"no-store\";\n    }}\n\n"
+
+idx = data.rfind('}')
+if idx == -1:
+    print('Nginx 配置格式异常，未找到结尾 }，跳过修改。')
+    sys.exit(1)
+
+new_data = data[:idx] + snippet + data[idx:]
+with open(conf, 'w', encoding='utf-8') as f:
+    f.write(new_data)
+
+print('已更新 Nginx 配置，注入 /api/mi /api/ss /asp-ss。')
+PY
+
+  nginx -t
+  systemctl reload nginx
+}
+
 setup_nginx() {
   if [ -f /etc/nginx/sites-enabled/default ]; then
     rm -f /etc/nginx/sites-enabled/default
@@ -505,6 +560,7 @@ main() {
   setup_screenshot_api
   run_container
   setup_nginx
+  patch_nginx
   print_info
 }
 
