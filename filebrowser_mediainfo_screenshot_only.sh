@@ -1,82 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# FileBrowser + MediaInfo (Docker) installer for Debian/Ubuntu
-# - Installs Docker if missing
-# - Installs Nginx + Python3 + MediaInfo on host
-# - Runs FileBrowser in Docker and injects a custom frontend popup for MediaInfo
-# - Exposes /api/mi for frontend calls
+# Deploy MediaInfo + Screenshot services only (no FileBrowser container)
+# - Installs deps: nginx, python3, mediainfo, ffmpeg
+# - Creates /api/mi and /api/ss Python services
+# - Optionally patches existing Nginx config to add /api/mi /api/ss /asp-ss
 
-FB_PORT="${FB_PORT:-8080}"
-FB_INTERNAL_PORT="${FB_INTERNAL_PORT:-18081}"
 FB_ROOT="${FB_ROOT:-/srv}"
-FB_DATA_DIR="${FB_DATA_DIR:-/opt/filebrowser}"
-FB_IMAGE="${FB_IMAGE:-filebrowser/filebrowser:s6}"
-FB_CONTAINER="${FB_CONTAINER:-filebrowser}"
-MI_PORT="${MI_PORT:-19090}"
-SS_PORT="${SS_PORT:-19190}"
 HOST_DL="${HOST_DL:-/home/admin/qbittorrent/Downloads}"
 SRV_DL="${SRV_DL:-/srv/dl}"
-
-ASP_MEDIAINFO_URL="https://raw.githubusercontent.com/TGRonin/Auto-Seedbox-PT/main/asp-mediainfo.js"
-ASP_SCREENSHOT_URL="https://raw.githubusercontent.com/TGRonin/Auto-Seedbox-PT/main/asp-screenshot.js"
-ASP_JS_PATH="/usr/local/bin/asp-mediainfo.js"
-ASP_SS_PATH="/usr/local/bin/asp-screenshot.js"
-SWAL_JS_PATH="/usr/local/bin/sweetalert2.all.min.js"
-MI_API_PATH="/usr/local/bin/asp-mediainfo.py"
-SS_API_PATH="/usr/local/bin/asp-screenshot.py"
-SS_OUT_DIR="/usr/local/asp-ss"
-NGINX_CONF="/etc/nginx/conf.d/asp-filebrowser.conf"
-
-is_valid_port() {
-  local p="$1"
-  [[ "$p" =~ ^[0-9]+$ ]] && [ "$p" -ge 1 ] && [ "$p" -le 65535 ]
-}
-
-prompt_var() {
-  local var_name="$1"
-  local default_val="$2"
-  local prompt="$3"
-  local input=""
-
-  if [ "${INTERACTIVE:-1}" = "0" ]; then
-    return 0
-  fi
-
-  if [ -r /dev/tty ]; then
-    read -r -p "${prompt}（默认为${default_val}）: " input < /dev/tty || true
-  elif [ -t 0 ]; then
-    read -r -p "${prompt}（默认为${default_val}）: " input || true
-  fi
-
-  if [ -n "${input}" ]; then
-    printf -v "${var_name}" '%s' "${input}"
-  fi
-}
-
-configure_ports() {
-  local default_fb_port="${FB_PORT}"
-  local default_internal_port="${FB_INTERNAL_PORT}"
-  local default_mi_port="${MI_PORT}"
-
-  prompt_var FB_PORT "${default_fb_port}" "请输入访问端口"
-  if ! is_valid_port "${FB_PORT}"; then
-    echo "端口 ${FB_PORT} 非法，回退为默认值 ${default_fb_port}" >&2
-    FB_PORT="${default_fb_port}"
-  fi
-
-  prompt_var FB_INTERNAL_PORT "${default_internal_port}" "请输入 FileBrowser 内部转发端口"
-  if ! is_valid_port "${FB_INTERNAL_PORT}"; then
-    echo "端口 ${FB_INTERNAL_PORT} 非法，回退为默认值 ${default_internal_port}" >&2
-    FB_INTERNAL_PORT="${default_internal_port}"
-  fi
-
-  prompt_var MI_PORT "${default_mi_port}" "请输入 MediaInfo API 端口"
-  if ! is_valid_port "${MI_PORT}"; then
-    echo "端口 ${MI_PORT} 非法，回退为默认值 ${default_mi_port}" >&2
-    MI_PORT="${default_mi_port}"
-  fi
-}
+MI_PORT="${MI_PORT:-19090}"
+SS_PORT="${SS_PORT:-19190}"
+SS_OUT_DIR="${SS_OUT_DIR:-/usr/local/asp-ss}"
+MI_API_PATH="${MI_API_PATH:-/usr/local/bin/asp-mediainfo.py}"
+SS_API_PATH="${SS_API_PATH:-/usr/local/bin/asp-screenshot.py}"
+NGINX_CONF="${NGINX_CONF:-/etc/nginx/conf.d/asp-filebrowser.conf}"
 
 ensure_root() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -85,37 +23,14 @@ ensure_root() {
   fi
 }
 
-install_docker() {
-  if command -v docker >/dev/null 2>&1; then
-    return 0
-  fi
-
-  echo "未检测到 Docker，开始安装..."
-  apt-get update -y
-  apt-get install -y ca-certificates curl gnupg lsb-release
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  chmod a+r /etc/apt/keyrings/docker.gpg
-  echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-    $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
-    | tee /etc/apt/sources.list.d/docker.list >/dev/null
-  apt-get update -y
-  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-}
-
-install_host_deps() {
+install_deps() {
   echo "安装宿主依赖 (nginx, python3, mediainfo, ffmpeg)..."
   apt-get update -y
   apt-get install -y nginx python3 mediainfo ffmpeg curl
 }
 
 prepare_dirs() {
-  mkdir -p "${FB_DATA_DIR}"
-  mkdir -p "${FB_ROOT}"
-  mkdir -p "${HOST_DL}"
-  mkdir -p "${SRV_DL}"
-  mkdir -p "${SS_OUT_DIR}"
+  mkdir -p "${FB_ROOT}" "${HOST_DL}" "${SRV_DL}" "${SS_OUT_DIR}"
 
   if ! mountpoint -q "${SRV_DL}"; then
     mount --bind "${HOST_DL}" "${SRV_DL}"
@@ -126,17 +41,9 @@ prepare_dirs() {
   fi
 }
 
-write_frontend_assets() {
-  curl -fsSL "${ASP_MEDIAINFO_URL}" -o "${ASP_JS_PATH}"
-  curl -fsSL "${ASP_SCREENSHOT_URL}" -o "${ASP_SS_PATH}"
-  curl -fsSL "https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js" -o "${SWAL_JS_PATH}"
-
-  chmod 644 "${ASP_JS_PATH}" "${ASP_SS_PATH}" "${SWAL_JS_PATH}"
-}
-
-setup_mediainfo_api() {
+write_mediainfo_api() {
   cat > "${MI_API_PATH}" <<'EOF_PY'
-import http.server, socketserver, urllib.parse, subprocess, json, os, sys
+import http.server, socketserver, urllib.parse, subprocess, os, sys
 
 PORT = int(sys.argv[2])
 BASE_DIR = sys.argv[1]
@@ -190,26 +97,9 @@ with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
 EOF_PY
 
   chmod +x "${MI_API_PATH}"
-
-  cat > /etc/systemd/system/asp-mediainfo.service <<EOF
-[Unit]
-Description=ASP MediaInfo API Service
-After=network.target
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/python3 ${MI_API_PATH} "${FB_ROOT}" ${MI_PORT} "${HOST_DL}" "${SRV_DL}"
-Restart=always
-[Install]
-WantedBy=multi-user.target
-EOF
-
-  systemctl daemon-reload
-  systemctl enable asp-mediainfo.service >/dev/null 2>&1
-  systemctl restart asp-mediainfo.service
 }
 
-setup_screenshot_api() {
+write_screenshot_api() {
   cat > "${SS_API_PATH}" <<'EOF_PY'
 import http.server, socketserver, urllib.parse, subprocess, json, os, sys, time, hashlib, zipfile
 
@@ -377,6 +267,21 @@ with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
 EOF_PY
 
   chmod +x "${SS_API_PATH}"
+}
+
+setup_services() {
+  cat > /etc/systemd/system/asp-mediainfo.service <<EOF
+[Unit]
+Description=ASP MediaInfo API Service
+After=network.target
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 ${MI_API_PATH} "${FB_ROOT}" ${MI_PORT} "${HOST_DL}" "${SRV_DL}"
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOF
 
   cat > /etc/systemd/system/asp-screenshot.service <<EOF
 [Unit]
@@ -392,119 +297,89 @@ WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
+  systemctl enable asp-mediainfo.service >/dev/null 2>&1
   systemctl enable asp-screenshot.service >/dev/null 2>&1
+  systemctl restart asp-mediainfo.service
   systemctl restart asp-screenshot.service
 }
 
-setup_nginx() {
-  if [ -f /etc/nginx/sites-enabled/default ]; then
-    rm -f /etc/nginx/sites-enabled/default
+patch_nginx() {
+  if [ ! -f "${NGINX_CONF}" ]; then
+    echo "未找到 Nginx 配置文件: ${NGINX_CONF}，跳过路由注入。"
+    return 0
   fi
 
-  cat > "${NGINX_CONF}" <<EOF
-server {
-    listen ${FB_PORT};
-    server_name _;
-    client_max_body_size 0;
+  python3 - <<'PY'
+import io
+import os
+import sys
 
-    location / {
-        proxy_pass http://127.0.0.1:${FB_INTERNAL_PORT};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$http_host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header Accept-Encoding "";
-        sub_filter '</body>' '<script src="/asp-mediainfo.js"></script><script src="/asp-screenshot.js"></script></body>';
-        sub_filter_once on;
-    }
+conf = os.environ.get('NGINX_CONF')
+mi_port = os.environ.get('MI_PORT')
+ss_port = os.environ.get('SS_PORT')
+ss_out = os.environ.get('SS_OUT_DIR')
 
-    location = /asp-mediainfo.js {
-        alias ${ASP_JS_PATH};
-        add_header Content-Type "application/javascript; charset=utf-8";
-    }
-    location = /asp-screenshot.js {
-        alias ${ASP_SS_PATH};
-        add_header Content-Type "application/javascript; charset=utf-8";
-    }
-    location = /sweetalert2.all.min.js {
-        alias ${SWAL_JS_PATH};
-        add_header Content-Type "application/javascript; charset=utf-8";
-    }
+with open(conf, 'r', encoding='utf-8') as f:
+    data = f.read()
 
-    location /api/mi {
-        proxy_pass http://127.0.0.1:${MI_PORT};
-    }
+need_mi = 'location /api/mi' not in data
+need_ss = 'location /api/ss' not in data
+need_out = 'location /asp-ss/' not in data
 
-    location /api/ss {
-        proxy_pass http://127.0.0.1:${SS_PORT};
-    }
+if not (need_mi or need_ss or need_out):
+    print('Nginx 已包含 /api/mi、/api/ss、/asp-ss 配置，无需修改。')
+    sys.exit(0)
 
-    location /asp-ss/ {
-        alias ${SS_OUT_DIR}/;
-        add_header Cache-Control "no-store";
-    }
-}
-EOF
+snippet = '\n'
+if need_mi:
+    snippet += f"    location /api/mi {{\n        proxy_pass http://127.0.0.1:{mi_port};\n    }}\n\n"
+if need_ss:
+    snippet += f"    location /api/ss {{\n        proxy_pass http://127.0.0.1:{ss_port};\n    }}\n\n"
+if need_out:
+    snippet += f"    location /asp-ss/ {{\n        alias {ss_out}/;\n        add_header Cache-Control \"no-store\";\n    }}\n\n"
 
-  systemctl restart nginx
-}
+idx = data.rfind('}')
+if idx == -1:
+    print('Nginx 配置格式异常，未找到结尾 }，跳过修改。')
+    sys.exit(1)
 
-run_container() {
-  if docker ps -a --format '{{.Names}}' | grep -q "^${FB_CONTAINER}$"; then
-    echo "发现已存在容器 ${FB_CONTAINER}，将先停止并删除..."
-    docker rm -f "${FB_CONTAINER}"
-  fi
+new_data = data[:idx] + snippet + data[idx:]
+with open(conf, 'w', encoding='utf-8') as f:
+    f.write(new_data)
 
-  docker run -d \
-    --name "${FB_CONTAINER}" \
-    -p "127.0.0.1:${FB_INTERNAL_PORT}:80" \
-    -v "${FB_ROOT}:/srv" \
-    -v "/home/admin/qbittorrent/Downloads:/srv/dl" \
-    -v "${FB_DATA_DIR}/filebrowser.db:/database.db" \
-    -v "${FB_DATA_DIR}/settings.json:/settings.json" \
-    --restart unless-stopped \
-    "${FB_IMAGE}"
+print('已更新 Nginx 配置，注入 /api/mi /api/ss /asp-ss。')
+PY
+
+  nginx -t
+  systemctl reload nginx
 }
 
 print_info() {
   cat <<EOF
-安装完成。
-访问地址: http://<服务器IP>:${FB_PORT}
-默认账号: admin
-默认密码: admin
-
-已在 FileBrowser 页面注入 MediaInfo / Screenshot 弹窗按钮（右键或选中文件菜单）。
-API: /api/mi 与 /api/ss 由宿主机 Python 服务提供。
-
-已将 /home/admin/qbittorrent/Downloads 绑定挂载到宿主 /srv/dl，并映射到容器内 /srv/dl。
+部署完成。
+MediaInfo API: http://127.0.0.1:${MI_PORT}/api/mi
+Screenshot API: http://127.0.0.1:${SS_PORT}/api/ss
+截图输出目录: ${SS_OUT_DIR}
 
 可选环境变量:
-  FB_PORT          - 访问端口 (默认 8080)
-  FB_INTERNAL_PORT - FileBrowser 容器内部转发端口 (默认 18081)
-  FB_ROOT          - 文件根目录 (默认 /srv)
-  FB_DATA_DIR      - 持久化数据目录 (默认 /opt/filebrowser)
-  FB_IMAGE         - 镜像名 (默认 filebrowser/filebrowser:s6)
-  FB_CONTAINER     - 容器名 (默认 filebrowser)
-  MI_PORT          - MediaInfo API 端口 (默认 19090)
-  SS_PORT          - Screenshot API 端口 (默认 19190)
-  INTERACTIVE      - 设为 0 可禁用交互提示
+  FB_ROOT     - 文件根目录 (默认 /srv)
+  HOST_DL     - 原始下载目录 (默认 /home/admin/qbittorrent/Downloads)
+  SRV_DL      - 绑定挂载目录 (默认 /srv/dl)
+  MI_PORT     - MediaInfo API 端口 (默认 19090)
+  SS_PORT     - Screenshot API 端口 (默认 19190)
+  SS_OUT_DIR  - 截图输出目录 (默认 /usr/local/asp-ss)
+  NGINX_CONF  - Nginx 配置路径 (默认 /etc/nginx/conf.d/asp-filebrowser.conf)
 EOF
 }
 
 main() {
   ensure_root
-  configure_ports
-  install_docker
-  install_host_deps
+  install_deps
   prepare_dirs
-  write_frontend_assets
-  setup_mediainfo_api
-  setup_screenshot_api
-  run_container
-  setup_nginx
+  write_mediainfo_api
+  write_screenshot_api
+  setup_services
+  patch_nginx
   print_info
 }
 
