@@ -14,6 +14,9 @@ SS_PORT="${SS_PORT:-19190}"
 SS_OUT_DIR="${SS_OUT_DIR:-/usr/local/asp-ss}"
 MI_API_PATH="${MI_API_PATH:-/usr/local/bin/asp-mediainfo.py}"
 SS_API_PATH="${SS_API_PATH:-/usr/local/bin/asp-screenshot.py}"
+ASP_SCREENSHOT_URL="${ASP_SCREENSHOT_URL:-https://raw.githubusercontent.com/TGRonin/Auto-Seedbox-PT/main/asp-screenshot.js}"
+ASP_SS_PATH="${ASP_SS_PATH:-/usr/local/bin/asp-screenshot.js}"
+SWAL_JS_PATH="${SWAL_JS_PATH:-/usr/local/bin/sweetalert2.all.min.js}"
 NGINX_CONF="${NGINX_CONF:-/etc/nginx/conf.d/asp-filebrowser.conf}"
 
 ensure_root() {
@@ -39,6 +42,13 @@ prepare_dirs() {
   if ! grep -qs "^${HOST_DL} ${SRV_DL} " /etc/fstab; then
     echo "${HOST_DL} ${SRV_DL} none bind 0 0" >> /etc/fstab
   fi
+}
+
+write_frontend_assets() {
+  curl -fsSL "${ASP_SCREENSHOT_URL}" -o "${ASP_SS_PATH}"
+  curl -fsSL "https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js" -o "${SWAL_JS_PATH}"
+
+  chmod 644 "${ASP_SS_PATH}" "${SWAL_JS_PATH}"
 }
 
 write_mediainfo_api() {
@@ -309,7 +319,7 @@ patch_nginx() {
     return 0
   fi
 
-  python3 - "${NGINX_CONF}" "${MI_PORT}" "${SS_PORT}" "${SS_OUT_DIR}" <<'PY'
+  python3 - "${NGINX_CONF}" "${MI_PORT}" "${SS_PORT}" "${SS_OUT_DIR}" "${ASP_SS_PATH}" "${SWAL_JS_PATH}" <<'PY'
 import io
 import os
 import sys
@@ -318,6 +328,8 @@ conf = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else '/etc/nginx/conf.d/
 mi_port = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else '19090'
 ss_port = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else '19190'
 ss_out = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else '/usr/local/asp-ss'
+ss_js_path = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else '/usr/local/bin/asp-screenshot.js'
+swal_js_path = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] else '/usr/local/bin/sweetalert2.all.min.js'
 
 if not conf:
     print('NGINX_CONF 为空，跳过修改。')
@@ -329,9 +341,11 @@ with open(conf, 'r', encoding='utf-8') as f:
 need_mi = 'location /api/mi' not in data
 need_ss = 'location /api/ss' not in data
 need_out = 'location /asp-ss/' not in data
+need_ss_js = 'location = /asp-screenshot.js' not in data
+need_swal_js = 'location = /sweetalert2.all.min.js' not in data
 
-if not (need_mi or need_ss or need_out):
-    print('Nginx 已包含 /api/mi、/api/ss、/asp-ss 配置，无需修改。')
+if not (need_mi or need_ss or need_out or need_ss_js or need_swal_js):
+    print('Nginx 已包含 /api/mi、/api/ss、/asp-ss、/asp-screenshot.js、/sweetalert2.all.min.js 配置，无需修改。')
     sys.exit(0)
 
 snippet = '\n'
@@ -341,6 +355,10 @@ if need_ss:
     snippet += f"    location /api/ss {{\n        proxy_pass http://127.0.0.1:{ss_port};\n    }}\n\n"
 if need_out:
     snippet += f"    location /asp-ss/ {{\n        alias {ss_out}/;\n        add_header Cache-Control \"no-store\";\n    }}\n\n"
+if need_ss_js:
+    snippet += f"    location = /asp-screenshot.js {{\n        alias {ss_js_path};\n        add_header Content-Type \"application/javascript; charset=utf-8\";\n    }}\n\n"
+if need_swal_js:
+    snippet += f"    location = /sweetalert2.all.min.js {{\n        alias {swal_js_path};\n        add_header Content-Type \"application/javascript; charset=utf-8\";\n    }}\n\n"
 
 idx = data.rfind('}')
 if idx == -1:
@@ -351,7 +369,7 @@ new_data = data[:idx] + snippet + data[idx:]
 with open(conf, 'w', encoding='utf-8') as f:
     f.write(new_data)
 
-print('已更新 Nginx 配置，注入 /api/mi /api/ss /asp-ss。')
+print('已更新 Nginx 配置，注入 /api/mi /api/ss /asp-ss /asp-screenshot.js /sweetalert2.all.min.js。')
 PY
 
   nginx -t
@@ -366,13 +384,16 @@ Screenshot API: http://127.0.0.1:${SS_PORT}/api/ss
 截图输出目录: ${SS_OUT_DIR}
 
 可选环境变量:
-  FB_ROOT     - 文件根目录 (默认 /srv)
-  HOST_DL     - 原始下载目录 (默认 /home/admin/qbittorrent/Downloads)
-  SRV_DL      - 绑定挂载目录 (默认 /srv/dl)
-  MI_PORT     - MediaInfo API 端口 (默认 19090)
-  SS_PORT     - Screenshot API 端口 (默认 19190)
-  SS_OUT_DIR  - 截图输出目录 (默认 /usr/local/asp-ss)
-  NGINX_CONF  - Nginx 配置路径 (默认 /etc/nginx/conf.d/asp-filebrowser.conf)
+  FB_ROOT          - 文件根目录 (默认 /srv)
+  HOST_DL          - 原始下载目录 (默认 /home/admin/qbittorrent/Downloads)
+  SRV_DL           - 绑定挂载目录 (默认 /srv/dl)
+  MI_PORT          - MediaInfo API 端口 (默认 19090)
+  SS_PORT          - Screenshot API 端口 (默认 19190)
+  SS_OUT_DIR       - 截图输出目录 (默认 /usr/local/asp-ss)
+  ASP_SCREENSHOT_URL - Screenshot JS URL (默认 GitHub)
+  ASP_SS_PATH      - Screenshot JS 本地路径 (默认 /usr/local/bin/asp-screenshot.js)
+  SWAL_JS_PATH     - SweetAlert2 本地路径 (默认 /usr/local/bin/sweetalert2.all.min.js)
+  NGINX_CONF       - Nginx 配置路径 (默认 /etc/nginx/conf.d/asp-filebrowser.conf)
 EOF
 }
 
@@ -380,6 +401,7 @@ main() {
   ensure_root
   install_deps
   prepare_dirs
+  write_frontend_assets
   write_mediainfo_api
   write_screenshot_api
   setup_services
