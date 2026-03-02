@@ -315,10 +315,10 @@ import io
 import os
 import sys
 
-conf = os.environ.get('NGINX_CONF')
-mi_port = os.environ.get('MI_PORT')
-ss_port = os.environ.get('SS_PORT')
-ss_out = os.environ.get('SS_OUT_DIR')
+conf = os.environ.get('NGINX_CONF') or '/etc/nginx/conf.d/asp-filebrowser.conf'
+mi_port = os.environ.get('MI_PORT') or '19090'
+ss_port = os.environ.get('SS_PORT') or '19190'
+ss_out = os.environ.get('SS_OUT_DIR') or '/usr/local/asp-ss'
 
 if not conf:
     print('NGINX_CONF 为空，跳过修改。')
