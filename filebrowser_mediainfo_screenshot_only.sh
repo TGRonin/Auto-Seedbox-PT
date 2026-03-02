@@ -304,11 +304,12 @@ EOF
 }
 
 patch_nginx() {
-  if [ ! -f "${NGINX_CONF}" ]; then
-    echo "未找到 Nginx 配置文件: ${NGINX_CONF}，跳过路由注入。"
+  if [ -z "${NGINX_CONF}" ] || [ ! -f "${NGINX_CONF}" ]; then
+    echo "未找到 Nginx 配置文件: ${NGINX_CONF:-<空>}，跳过路由注入。"
     return 0
   fi
 
+  NGINX_CONF="${NGINX_CONF}" MI_PORT="${MI_PORT}" SS_PORT="${SS_PORT}" SS_OUT_DIR="${SS_OUT_DIR}" \
   python3 - <<'PY'
 import io
 import os
@@ -318,6 +319,10 @@ conf = os.environ.get('NGINX_CONF')
 mi_port = os.environ.get('MI_PORT')
 ss_port = os.environ.get('SS_PORT')
 ss_out = os.environ.get('SS_OUT_DIR')
+
+if not conf:
+    print('NGINX_CONF 为空，跳过修改。')
+    sys.exit(0)
 
 with open(conf, 'r', encoding='utf-8') as f:
     data = f.read()
