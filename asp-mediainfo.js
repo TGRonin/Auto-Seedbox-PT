@@ -67,56 +67,19 @@
         });
         
         fetch(`/api/mi?file=${encodeURIComponent(fullPath)}`)
-        .then(r => r.json())
-        .then(data => {
-            if(data.error) throw new Error(data.error);
+        .then(r => r.text().then(t => ({ ok: r.ok, status: r.status, text: t })))
+        .then(({ ok, status, text }) => {
+            if (!ok) throw new Error(text || `HTTP ${status}`);
             
-            let rawText = "";
+            let rawText = text || '';
             let html = `<style>
-                .mi-box { text-align:left; font-size:13px; background:#1e1e1e; color:#d4d4d4; padding:15px; border-radius:8px; max-height:550px; overflow-y:auto; font-family: 'Consolas', 'Courier New', monospace; user-select:text;}
-                .mi-track { margin-bottom: 20px; }
-                .mi-track-header { font-size: 15px; font-weight: bold; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #444; }
-                .mi-Video .mi-track-header { color: #569cd6; border-bottom-color: #569cd6; }
-                .mi-Audio .mi-track-header { color: #4ec9b0; border-bottom-color: #4ec9b0; }
-                .mi-Text .mi-track-header { color: #ce9178; border-bottom-color: #ce9178; }
-                .mi-General .mi-track-header { color: #dcdcaa; border-bottom-color: #dcdcaa; }
-                .mi-Menu .mi-track-header { color: #c586c0; border-bottom-color: #c586c0; }
-                .mi-item { display: flex; padding: 3px 0; line-height: 1.5; border-bottom: 1px dashed #333;}
-                .mi-key { width: 180px; flex-shrink: 0; color: #9cdcfe; }
-                .mi-val { flex-grow: 1; color: #cecece; word-wrap: break-word; }
-            </style><div class="mi-box">`;
-
-            if (data.media && data.media.track) {
-                data.media.track.forEach(t => {
-                    let type = t['@type'] || 'Unknown';
-                    // 头部空行，更符合原生 CLI 观感
-                    rawText += `${type}\n`;
-                    html += `<div class="mi-track mi-${type}"><div class="mi-track-header">${type}</div>`;
-
-                    for (let k in t) { 
-                        if (k === '@type') continue;
-                        let val = t[k];
-                        if (typeof val === 'object') val = JSON.stringify(val);
-                        
-                        // 优化对齐逻辑：原生格式通常是 Key 占一定宽度，然后跟 ' : '
-                        let paddedKey = String(k).padEnd(32, ' ');
-                        rawText += `${paddedKey}: ${val}\n`;
-
-                        html += `<div class="mi-item"><div class="mi-key">${k}</div><div class="mi-val">${val}</div></div>`;
-                    }
-                    rawText += `\n`;
-                    html += `</div>`;
-                });
-            } else { 
-                rawText = JSON.stringify(data, null, 2); 
-                html += `<pre>${rawText}</pre>`;
-            }
-            html += `</div>`;
+                .mi-box { text-align:left; font-size:13px; background:#1e1e1e; color:#d4d4d4; padding:15px; border-radius:8px; max-height:550px; overflow-y:auto; font-family: 'Consolas', 'Courier New', monospace; user-select:text; white-space: pre-wrap;}
+            </style><div class="mi-box"><pre>${rawText.replace(/[&<>]/g, c => ({'&':'&','<':'<','>':'>'}[c]))}</pre></div>`;
             
             // 优化：提供纯文本与 BBCode 两种复制选项
-            Swal.fire({ 
-                title: fileName, 
-                html: html, 
+            Swal.fire({
+                title: fileName,
+                html: html,
                 width: '850px',
                 showCancelButton: true,
                 showDenyButton: true,

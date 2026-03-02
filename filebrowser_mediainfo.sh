@@ -146,46 +146,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             file_path = query.get('file', [''])[0].lstrip('/')
             full_path = os.path.abspath(os.path.join(BASE_DIR, file_path))
 
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-
             if not full_path.startswith(os.path.abspath(BASE_DIR)) or not os.path.isfile(full_path):
-                self.wfile.write(json.dumps({"error": "非法路径或文件不存在"}).encode('utf-8'))
+                self.send_response(400)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.end_headers()
+                self.wfile.write('非法路径或文件不存在'.encode('utf-8'))
                 return
 
             try:
-                res = subprocess.run(['mediainfo', '--Output=JSON', full_path], capture_output=True, text=True)
-                try:
-                    json.loads(res.stdout)
-                    self.wfile.write(res.stdout.encode('utf-8'))
-                    return
-                except Exception:
-                    pass
-
-                res_text = subprocess.run(['mediainfo', full_path], capture_output=True, text=True)
-                lines = res_text.stdout.split('\n')
-                tracks = []
-                current_track = {}
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        if current_track:
-                            tracks.append(current_track)
-                            current_track = {}
-                        continue
-                    if ':' not in line and '@type' not in current_track:
-                        current_track['@type'] = line
-                    elif ':' in line:
-                        k, v = line.split(':', 1)
-                        current_track[k.strip()] = v.strip()
-                if current_track:
-                    tracks.append(current_track)
-
-                self.wfile.write(json.dumps({"media": {"track": tracks}}).encode('utf-8'))
-
+                res = subprocess.run(['mediainfo', full_path], capture_output=True, text=True)
+                output = res.stdout if res.stdout else res.stderr
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(output.encode('utf-8', errors='ignore'))
             except Exception as e:
-                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+                self.send_response(500)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(str(e).encode('utf-8', errors='ignore'))
         else:
             self.send_response(404)
             self.end_headers()
