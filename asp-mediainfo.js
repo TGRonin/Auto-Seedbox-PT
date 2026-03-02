@@ -119,33 +119,41 @@
                 html: html, 
                 width: '850px',
                 showCancelButton: true,
-                showDenyButton: true, // 开启第三个按钮
+                showDenyButton: true,
                 confirmButtonColor: '#3085d6',
                 denyButtonColor: '#28a745', // 绿色
                 cancelButtonColor: '#555',
                 confirmButtonText: '📋 纯文本',
                 denyButtonText: '🏷️ 复制 BBCode',
-                cancelButtonText: '关闭'
-            }).then((result) => {
-                let textToCopy = rawText.trim();
-                let successMsg = '纯文本复制成功！';
-
-                if (result.isConfirmed) {
-                    // 纯文本
-                    textToCopy = rawText.trim();
-                } else if (result.isDenied) {
-                    // BBCode 格式
-                    textToCopy = `[quote]\n${rawText.trim()}\n[/quote]`;
-                    successMsg = 'BBCode 复制成功，快去发种吧！';
-                } else {
-                    return; // 点击关闭或背景
+                cancelButtonText: '关闭',
+                // 拦截“纯文本”按钮点击
+                preConfirm: () => {
+                    let textToCopy = rawText.trim();
+                    copyText(textToCopy).then(() => {
+                        // 修改按钮文字作为反馈，不触发新的 Swal 弹窗
+                        let btn = Swal.getConfirmButton();
+                        let originalText = btn.innerHTML;
+                        btn.innerHTML = '✅ 纯文本复制成功！';
+                        setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+                    }).catch(() => {
+                        alert('复制失败，请手动选中上方文本进行复制');
+                    });
+                    return false; // 返回 false 阻止弹窗关闭
+                },
+                // 拦截“复制 BBCode”按钮点击
+                preDeny: () => {
+                    let textToCopy = `[quote]\n${rawText.trim()}\n[/quote]`;
+                    copyText(textToCopy).then(() => {
+                        // 修改按钮文字作为反馈
+                        let btn = Swal.getDenyButton();
+                        let originalText = btn.innerHTML;
+                        btn.innerHTML = '✅ BBCode 复制成功！';
+                        setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+                    }).catch(() => {
+                        alert('复制失败，请手动选中上方文本进行复制');
+                    });
+                    return false; // 返回 false 阻止弹窗关闭
                 }
-
-                copyText(textToCopy).then(() => {
-                    Swal.fire({toast: true, position: 'top-end', icon: 'success', title: successMsg, showConfirmButton: false, timer: 2000});
-                }).catch(() => {
-                    Swal.fire('复制失败', '请手动选中上方文本进行复制', 'error');
-                });
             });
         }).catch(e => Swal.fire('解析失败', e.toString(), 'error'));
     };
