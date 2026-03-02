@@ -103,9 +103,21 @@ install_host_deps() {
 }
 
 prepare_dirs() {
+  local host_dl="/home/admin/qbittorrent/Downloads"
+  local srv_dl="/srv/dl"
+
   mkdir -p "${FB_DATA_DIR}"
   mkdir -p "${FB_ROOT}"
-  mkdir -p "/home/admin/qbittorrent/Downloads"
+  mkdir -p "${host_dl}"
+  mkdir -p "${srv_dl}"
+
+  if ! mountpoint -q "${srv_dl}"; then
+    mount --bind "${host_dl}" "${srv_dl}"
+  fi
+
+  if ! grep -qs "^${host_dl} ${srv_dl} " /etc/fstab; then
+    echo "${host_dl} ${srv_dl} none bind 0 0" >> /etc/fstab
+  fi
 }
 
 write_frontend_assets() {
@@ -480,7 +492,7 @@ print_info() {
 已在 FileBrowser 页面注入 MediaInfo 弹窗按钮（右键或选中文件菜单）。
 API: /api/mi 由宿主机 Python 服务提供。
 
-已将 /home/admin/qbittorrent/Downloads 挂载到容器内 /srv/dl。
+已将 /home/admin/qbittorrent/Downloads 绑定挂载到宿主 /srv/dl，并映射到容器内 /srv/dl。
 
 可选环境变量:
   FB_PORT          - 访问端口 (默认 8080)
