@@ -402,7 +402,7 @@ patch_nginx() {
     return 0
   fi
 
-  python3 - "${NGINX_CONF}" "${MI_PORT}" "${SS_PORT}" "${SS_OUT_DIR}" <<'PY'
+  python3 - "${NGINX_CONF}" "${MI_PORT}" "${SS_PORT}" "${SS_OUT_DIR}" "${ASP_JS_PATH}" "${ASP_SS_PATH}" "${SWAL_JS_PATH}" <<'PY'
 import io
 import os
 import sys
@@ -411,6 +411,9 @@ conf = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else '/etc/nginx/conf.d/
 mi_port = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else '19090'
 ss_port = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else '19190'
 ss_out = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else '/usr/local/asp-ss'
+mi_js_path = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else '/usr/local/bin/asp-mediainfo.js'
+ss_js_path = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] else '/usr/local/bin/asp-screenshot.js'
+swal_js_path = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else '/usr/local/bin/sweetalert2.all.min.js'
 
 if not conf:
     print('NGINX_CONF 为空，跳过修改。')
@@ -422,9 +425,13 @@ with open(conf, 'r', encoding='utf-8') as f:
 need_mi = 'location /api/mi' not in data
 need_ss = 'location /api/ss' not in data
 need_out = 'location /asp-ss/' not in data
+need_mi_js = 'location = /asp-mediainfo.js' not in data
+need_ss_js = 'location = /asp-screenshot.js' not in data
+need_swal_js = 'location = /sweetalert2.all.min.js' not in data
+need_pixhost = 'location /api/pixhost' not in data
 
-if not (need_mi or need_ss or need_out):
-    print('Nginx 已包含 /api/mi、/api/ss、/asp-ss 配置，无需修改。')
+if not (need_mi or need_ss or need_out or need_mi_js or need_ss_js or need_swal_js or need_pixhost):
+    print('Nginx 已包含 /api/mi、/api/ss、/asp-ss、/asp-mediainfo.js、/asp-screenshot.js、/sweetalert2.all.min.js、/api/pixhost 配置，无需修改。')
     sys.exit(0)
 
 snippet = '\n'
@@ -434,6 +441,14 @@ if need_ss:
     snippet += f"    location /api/ss {{\n        proxy_pass http://127.0.0.1:{ss_port};\n    }}\n\n"
 if need_out:
     snippet += f"    location /asp-ss/ {{\n        alias {ss_out}/;\n        add_header Cache-Control \"no-store\";\n    }}\n\n"
+if need_mi_js:
+    snippet += f"    location = /asp-mediainfo.js {{\n        alias {mi_js_path};\n        add_header Content-Type \"application/javascript; charset=utf-8\";\n    }}\n\n"
+if need_ss_js:
+    snippet += f"    location = /asp-screenshot.js {{\n        alias {ss_js_path};\n        add_header Content-Type \"application/javascript; charset=utf-8\";\n    }}\n\n"
+if need_swal_js:
+    snippet += f"    location = /sweetalert2.all.min.js {{\n        alias {swal_js_path};\n        add_header Content-Type \"application/javascript; charset=utf-8\";\n    }}\n\n"
+if need_pixhost:
+    snippet += "    location /api/pixhost {\n        proxy_pass https://pixhost.to/remote/;\n        proxy_set_header Host pixhost.to;\n        proxy_set_header Referer https://pixhost.to/;\n        proxy_set_header Origin https://pixhost.to;\n    }\n\n"
 
 idx = data.rfind('}')
 if idx == -1:
@@ -444,7 +459,7 @@ new_data = data[:idx] + snippet + data[idx:]
 with open(conf, 'w', encoding='utf-8') as f:
     f.write(new_data)
 
-print('已更新 Nginx 配置，注入 /api/mi /api/ss /asp-ss。')
+print('已更新 Nginx 配置，注入 /api/mi /api/ss /asp-ss /asp-mediainfo.js /asp-screenshot.js /sweetalert2.all.min.js /api/pixhost。')
 PY
 
   nginx -t
@@ -497,6 +512,13 @@ server {
         proxy_pass http://127.0.0.1:${SS_PORT};
     }
 
+    location /api/pixhost {
+        proxy_pass https://pixhost.to/remote/;
+        proxy_set_header Host pixhost.to;
+        proxy_set_header Referer https://pixhost.to/;
+        proxy_set_header Origin https://pixhost.to;
+    }
+
     location /asp-ss/ {
         alias ${SS_OUT_DIR}/;
         add_header Cache-Control "no-store";
@@ -533,6 +555,7 @@ print_info() {
 
 已在 FileBrowser 页面注入 MediaInfo / Screenshot 弹窗按钮（右键或选中文件菜单）。
 API: /api/mi 与 /api/ss 由宿主机 Python 服务提供。
+说明: 已内置 /api/pixhost 反向代理用于绕过 CORS。
 
 已将 /home/admin/qbittorrent/Downloads 绑定挂载到宿主 /srv/dl，并映射到容器内 /srv/dl。
 
